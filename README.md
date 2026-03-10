@@ -36,6 +36,11 @@ python proc_tree_view.py --details
 # Filter by process name
 python proc_tree_view.py --filter python
 python proc_tree_view.py --filter node
+
+# Export tree to a text file
+python proc_tree_view.py --export tree.txt
+python proc_tree_view.py --export tree.txt --details
+python proc_tree_view.py --export tree.txt --filter python
 ```
 
 ## What You See
