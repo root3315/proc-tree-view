@@ -287,6 +287,86 @@ def run_list_view(filter_name=None):
         )
 
 
+def generate_plain_tree(pid, process_dict, children_map, prefix="", is_last=True, show_details=False):
+    """Generate plain text tree representation."""
+    lines = []
+
+    if pid not in process_dict:
+        return lines
+
+    proc_info = process_dict[pid]
+    name = proc_info["name"]
+    pid_val = proc_info["pid"]
+    status = proc_info["status"]
+
+    connector = "└── " if is_last else "├── "
+    label = f"{name} (PID: {pid_val}, Status: {status})"
+
+    if show_details:
+        cpu = proc_info["cpu_percent"]
+        mem = proc_info["memory_percent"]
+        label = f"{name} (PID: {pid_val}, Status: {status}, CPU: {cpu:.1f}%, MEM: {mem:.1f}%)"
+
+    lines.append(f"{prefix}{connector}{label}")
+
+    child_pids = sorted(children_map.get(pid, []))
+    child_prefix = prefix + ("    " if is_last else "│   ")
+
+    for i, child_pid in enumerate(child_pids):
+        is_last_child = (i == len(child_pids) - 1)
+        child_lines = generate_plain_tree(
+            child_pid, process_dict, children_map, child_prefix, is_last_child, show_details
+        )
+        lines.extend(child_lines)
+
+    return lines
+
+
+def export_tree_to_file(filepath, process_dict, children_map, show_details=False, filter_name=None):
+    """Export the process tree to a text file."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = []
+    lines.append("=" * 60)
+    lines.append("Process Tree Export")
+    lines.append(f"Generated: {timestamp}")
+    if filter_name:
+        lines.append(f"Filter: {filter_name}")
+    lines.append("=" * 60)
+    lines.append("")
+
+    stats = get_summary_stats(process_dict)
+    lines.append(f"Total Processes: {stats['total']}")
+    lines.append(f"Running: {stats['running']}")
+    lines.append(f"Sleeping: {stats['sleeping']}")
+    lines.append(f"Zombie: {stats['zombie']}")
+    lines.append(f"Total CPU: {stats['cpu']:.1f}%")
+    lines.append(f"Total Memory: {stats['memory']:.1f}%")
+    lines.append("")
+    lines.append("-" * 60)
+    lines.append("Process Tree:")
+    lines.append("-" * 60)
+
+    root_pids = get_root_processes(process_dict, children_map)
+
+    for i, root_pid in enumerate(root_pids):
+        is_last = (i == len(root_pids) - 1)
+        tree_lines = generate_plain_tree(
+            root_pid, process_dict, children_map, "", is_last, show_details
+        )
+        lines.extend(tree_lines)
+
+    lines.append("")
+    lines.append("=" * 60)
+
+    content = "\n".join(lines)
+
+    with open(filepath, "w") as f:
+        f.write(content)
+
+    return filepath
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Visualize process trees in real time",
@@ -299,6 +379,7 @@ Examples:
   %(prog)s -i 2                # Update every 2 seconds
   %(prog)s --details           # Show CPU/Memory details
   %(prog)s --filter python     # Filter by process name
+  %(prog)s --export tree.txt   # Export tree to file
         """,
     )
 
@@ -335,9 +416,36 @@ Examples:
         help="Filter processes by name substring",
     )
 
+    parser.add_argument(
+        "--export",
+        type=str,
+        dest="export_file",
+        metavar="FILE",
+        help="Export tree to a text file instead of displaying",
+    )
+
     args = parser.parse_args()
 
-    if args.list_mode:
+    if args.export_file:
+        all_procs = refresh_processes()
+
+        if args.filter_name:
+            all_procs = [
+                p for p in all_procs if args.filter_name.lower() in p["name"].lower()
+            ]
+
+        if not all_procs:
+            console = Console()
+            console.print("[yellow]⚠️  No processes found to export[/yellow]")
+            sys.exit(1)
+
+        process_dict, children_map = build_process_tree(all_procs)
+        export_tree_to_file(
+            args.export_file, process_dict, children_map, args.details, args.filter_name
+        )
+        console = Console()
+        console.print(f"[green]✓ Tree exported to {args.export_file}[/green]")
+    elif args.list_mode:
         run_list_view(args.filter_name)
     elif args.static:
         run_static_view(args.details, args.filter_name)
